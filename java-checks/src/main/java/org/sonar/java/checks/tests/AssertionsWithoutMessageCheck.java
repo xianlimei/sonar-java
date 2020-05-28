@@ -28,10 +28,11 @@ import org.sonar.java.model.ExpressionUtils;
 import org.sonar.plugins.java.api.semantic.MethodMatchers;
 import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.semantic.Type;
-import org.sonar.plugins.java.api.tree.BaseTreeVisitor;
 import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.IdentifierTree;
+import org.sonar.plugins.java.api.tree.MemberSelectExpressionTree;
 import org.sonar.plugins.java.api.tree.MethodInvocationTree;
+import org.sonar.plugins.java.api.tree.Tree;
 
 import static org.sonar.plugins.java.api.semantic.Type.Primitives.DOUBLE;
 import static org.sonar.plugins.java.api.semantic.Type.Primitives.FLOAT;
@@ -62,6 +63,9 @@ public class AssertionsWithoutMessageCheck extends AbstractMethodDetection {
   private static final Set<String> JUNIT5_ASSERT_METHODS_WITH_ONE_PARAM = ImmutableSet.of("assertTrue", "assertFalse", "assertNull", "assertNotNull", "assertDoesNotThrow");
   private static final Set<String> JUNIT5_ASSERT_METHODS_WITH_DELTA = ImmutableSet.of("assertArrayEquals", "assertEquals");
 
+  private static final MethodMatchers ASSERT_THAT_MATCHER = MethodMatchers.create()
+    .ofSubTypes("org.assertj.core.api.Assertions", "org.fest.assertions.Assertions").names("assertThat", "assertThatObject").withAnyParameters().build();
+
   @Override
   protected MethodMatchers getMethodInvocationMatchers() {
     return MethodMatchers.or(
@@ -86,9 +90,9 @@ public class AssertionsWithoutMessageCheck extends AbstractMethodDetection {
     IdentifierTree reportLocation = ExpressionUtils.methodName(mit);
 
     if (type.isSubtypeOf(FEST_GENERIC_ASSERT)) {
-      checkFestLikeAssertion(mit, symbol, FEST_MESSAGE_METHODS, reportLocation);
+      checkFestLikeAssertion(mit, symbol, reportLocation);
     } else if (type.isSubtypeOf(ASSERTJ_ABSTRACT_ASSERT)) {
-      checkFestLikeAssertion(mit, symbol, ASSERTJ_MESSAGE_METHODS, reportLocation);
+      checkFestLikeAssertion(mit, symbol, reportLocation);
     } else if (type.is("org.junit.jupiter.api.Assertions")) {
       checkJUnit5(mit, reportLocation);
     } else if (mit.arguments().isEmpty() || !isString(mit.arguments().get(0)) || isAssertingOnStringWithNoMessage(mit)) {
@@ -96,15 +100,25 @@ public class AssertionsWithoutMessageCheck extends AbstractMethodDetection {
     }
   }
 
-  private void checkFestLikeAssertion(MethodInvocationTree mit, Symbol symbol, MethodMatchers messageMethods, IdentifierTree reportLocation) {
+  private void checkFestLikeAssertion(MethodInvocationTree mit, Symbol symbol, IdentifierTree reportLocation) {
     if (isConstructor(symbol)) {
       return;
     }
-    FestLikeVisitor visitor = new FestLikeVisitor(messageMethods);
-    mit.methodSelect().accept(visitor);
-    if (!visitor.useDescription) {
+    if (isAfterAssertThat(mit)) {
+      // If we have anything between the current assertion predicate and the assertion subject, it's either
+      // - another assertion predicate: the issue will be raised on this one (if problematic)
+      // - a message: compliant solution
       reportIssue(reportLocation, MESSAGE_FEST_LIKE);
     }
+  }
+
+  private static boolean isAfterAssertThat(MethodInvocationTree mit) {
+    ExpressionTree methodSelect = mit.methodSelect();
+    if (methodSelect.is(Tree.Kind.MEMBER_SELECT)) {
+      ExpressionTree expression = ((MemberSelectExpressionTree) methodSelect).expression();
+      return expression.is(Tree.Kind.METHOD_INVOCATION) && ASSERT_THAT_MATCHER.matches((MethodInvocationTree) expression);
+    }
+    return false;
   }
 
   private void checkJUnit5(MethodInvocationTree mit, IdentifierTree reportLocation) {
@@ -172,18 +186,4 @@ public class AssertionsWithoutMessageCheck extends AbstractMethodDetection {
     return expressionTree.symbolType().is(JAVA_LANG_STRING);
   }
 
-  private static class FestLikeVisitor extends BaseTreeVisitor {
-    boolean useDescription = false;
-    private final MethodMatchers descriptionMethodMatcher;
-
-    public FestLikeVisitor(MethodMatchers descriptionMethodMatcher) {
-      this.descriptionMethodMatcher = descriptionMethodMatcher;
-    }
-
-    @Override
-    public void visitMethodInvocation(MethodInvocationTree tree) {
-      useDescription |= descriptionMethodMatcher.matches(tree);
-      super.visitMethodInvocation(tree);
-    }
-  }
 }

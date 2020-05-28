@@ -1,11 +1,14 @@
 package checks;
 
+import java.util.Collection;
+import org.assertj.core.api.AbstractObjectAssert;
+import org.assertj.core.api.AbstractStringAssert;
 import org.assertj.core.description.TextDescription;
 import org.fest.assertions.BasicDescription;
 import org.fest.assertions.GenericAssert;
 import org.junit.jupiter.api.function.Executable;
 
-import java.util.Collection;
+import static checks.MyAbstractIsEqualTo.isEqualTo;
 
 class AssertionsWithoutMessageCheck {
   void foo() {
@@ -35,6 +38,7 @@ class AssertionsWithoutMessageCheck {
     org.fest.assertions.Assertions.assertThat("").isEqualTo("").as("Message"); // Noncompliant
 
     org.assertj.core.api.Assertions.assertThat(true).isTrue(); // Noncompliant
+    org.assertj.core.api.Assertions.assertThatObject(true).isEqualTo(""); // Noncompliant
     org.assertj.core.api.Assertions.assertThat(true).as("verifying the truth").isTrue();
     org.assertj.core.api.Assertions.assertThat(true).as("verifying the truth", new Object()).isTrue();
     org.assertj.core.api.Assertions.assertThat(true).as(new TextDescription("verifying the truth")).isTrue();
@@ -47,6 +51,16 @@ class AssertionsWithoutMessageCheck {
     org.assertj.core.api.Assertions.assertThat(true).overridingErrorMessage("fail message", new Object()).isTrue();
     org.assertj.core.api.Assertions.assertThat("").as("Message").isEqualTo("");
     org.assertj.core.api.Assertions.assertThat("").isEqualTo("").as("Message"); // Noncompliant [[sc=52;ec=61]] {{Add a message to this assertion before calling this method.}}
+    org.assertj.core.api.Assertions.assertThat("").matches("x").matches("y"); // Noncompliant [[sc=52;ec=59]]
+
+    AbstractStringAssert variableAssert = org.assertj.core.api.Assertions.assertThat("").as("message");
+    variableAssert.isEqualTo("");  // Compliant
+    AbstractStringAssert variableAssertWithoutMessage = org.assertj.core.api.Assertions.assertThat("");
+    variableAssertWithoutMessage.isEqualTo("");  // FN, we can not be sure that the assertion provide a message
+
+    // Compliant, not used as expected (for coverage)
+    isEqualTo();
+    MyAbstractIsEqualTo.isEqualTo();
 
     org.junit.Assert.assertThat("foo", null); // Noncompliant {{Add a message to this assertion.}}
     org.junit.Assert.assertThat("foo", "bar", null);
@@ -147,5 +161,15 @@ class AssertionsWithoutMessageCheck {
     protected MyCustomGenericAssert(Class<String> selfType, String actual) {
       super(selfType, actual); // Compliant
     }
+  }
+}
+
+class MyAbstractIsEqualTo extends AbstractObjectAssert {
+
+  public MyAbstractIsEqualTo(Object o, Class selfType) {
+    super(o, selfType);
+  }
+
+  public static void isEqualTo() {
   }
 }
